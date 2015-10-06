@@ -1,0 +1,204 @@
+---
+title: "Geocaching in Israel"
+author: "Elisa Lerner"
+date: "25 September 2015"
+output: pdf_document
+---
+
+##Introduction
+Have you ever been geocaching? Have you even heard of geocaching? Well, over twenty million people over the world spend part of their leisure time hiding caches and looking for caches that other players have hidden. Once a cache has been hidden, the longitude and latitude coordinates are uploaded to a geocaching site and happy seekers use GPS applications on their mobile phones to see how close they are. For further details - [Wikipedia](https://en.wikipedia.org/wiki/Geocaching)  
+I was curious to find out what is the distribution of geocaches around Israel.  
+It is possible to find free online information about many geocaches, though some are reserved for 'premium' paying members. Files containing information about a number of geocaches may be downloaded only by premium members.  The files are GPX files, which is a form of XML file containing GPS data and can be read into R using the package "plotKML".  
+I ran a search for all geocaches hidden within Israel up to 25/09/2015 and downloaded the search results. I actually ran two searches, because each search is limited to a maximum of 1000 caches. The archive 16648504.zip contains GPX files with information about caches hidden up to the end of 2013, and the archive 16648512.zip, from the beginning of 2014 until 25/09/2015.  
+
+##Loading the data into R
+```{r}
+library(plotKML)
+unzip("16648504.zip")
+unzip("16648512.zip")
+gc2013 <- readGPX("16648504.gpx")
+gc2015 <- readGPX("16648512.gpx")
+```
+Each gpx file contains a list. The first element in the list is metadata, for example:
+```{r}
+gc2013[[1]]
+```
+The second element shows the maximum and minimum GPS coordinates of all the caches found.  
+
+```{r}
+gc2013[[2]]
+gc2015[[2]]
+```
+The third element is a data frame containing the details of the caches.
+
+##Processing data before analysis
+Since the two files were separated because of the download constraint, the details from the two files were merged into one data frame.  
+```{r}
+gc <- merge(gc2013[[3]],gc2015[[3]],by=names(gc2013[[3]]),all=TRUE)
+```
+The number of rows in the new data frame is  `r nrow(gc)` - the total number of geocaches in Israel, and the number of columns `r ncol(gc)` - the number of variables describing the caches.  
+
+###Variables 
+The first column 'lon' contains the longitudes of the caches; the second column 'lat' contains the latitudes.  
+The third column is called 'time'. This is actually the date on which the cache was placed. The dates need to be transformed into an appropriate form.  
+```{r}
+l <- nrow(gc)
+date <- gc$time
+date <- gsub("T(.*)","",date)
+date <-as.Date(date)
+gc[,3] <- date
+names(gc)[3] <- "date"
+```
+The fourth variable 'name' is the code name of the cache. The fifth variable 'desc' is a short description of the name of the cache, who it was placed by, the type of cache , the difficulty level of finding it and the level of difficulty of the terrain. These parameters need to be separated into separate variables, but since some of this information is duplicated in other variables, only new information is retrieved and joined to the data frame.   
+```{r}
+props <- gc$desc
+by <- vector("character",l)
+for (i in 1:l){ temp1 <- strsplit(props[i],"by");
+                temp2<-strsplit(temp1[[1]][2],",");
+                by[i] <- temp2[[1]][1]
+                }
+
+d <- vector("character",l)
+t <- vector("character",l)
+
+level <- gsub("(.*),([a-z A-Z]*)\\(","",props)
+level <- gsub("\\)","",level)
+
+for (i in 1:l){ dt <- strsplit(level[i],"/");
+                d[i]<- dt[[1]][1];t[i]<-dt[[1]][2]
+                }
+difficulty <- as.numeric(d)
+terrain <- as.numeric(t)
+
+gc$by <- by
+gc$difficulty <- difficulty
+gc$terrain <- terrain
+```
+The "by" variable, holds names of the cachers who placed the geocaches.  I thought it might be interesting to look at the level of activity of each of these "hiders",ie who hid the most caches, etc, but looking at the contents of the variable I found that sometimes they cooperated and hid caches together. The following chunk of code separates them all out and determines the frequency of caches hidden by each cacher. Obviously the total number hidden is greater than the total number of caches because some are counted more than once.
+```{r}
+cachers <- gc$by
+cachers <- gsub("-"," ",cachers)
+cachers <- gsub("maintained","",cachers)
+cachers <- gsub("the help of","",cachers)
+cachers <- gsub("\\(","",cachers)
+cachers <- gsub("\\)","",cachers)
+cachers <- gsub("in memory of somloci","",cachers)
+cachers <- gsub("Team","",cachers)
+cachers <- gsub("freinds","friends",cachers)
+cachers <- gsub("2 from","",cachers)
+cachers<- strsplit(cachers,"\\& | and | \\+ | with")
+cachers <- toupper(unlist(cachers))
+cachers <- trimws(cachers)
+counts <- table(cachers)
+topCachers <- counts[counts>10]
+```
+The next two variables 'url' and 'urlname' are self explanatory. The variable 'sym' has the same entry `r unique(gc$sym)` for each cache, and the variable 'type' descibes the type of cache as one of the following types:  
+```{r}
+unique(gc$type)
+```
+This [webpage](https://www.geocaching.com/about/cache_types.aspx) characterizes the different types of cache.  
+
+The tenth column, 'cache', duplicates several of the descriptive variables already mentioned, but also contains information about the size of the cache, which needs to be extracted, as well as alot of text containing messages left by geocachers who seeked the cache.Definitions of the size categories in [this link](https://www.geocaching.com/guide/default.aspx).  
+Although the messages are useful for seekers, I was interested in counting the number of seekers who actually looked for the cache, as a measure of popularity, and the proportion who succeeded in finding it. This is assuming that every seeker did actually leave a message!  However, after examining the file I discovered that a maximum of 5 messages (logs) can be downloaded in the gpx file. These appear to be the last 5 logs, ie the last 5 seekers of the particular cache, so that the counts cannot represent a level of popularity, but the number of finds out of the recent seeks can be assumed to indicate a sort of recent success rate.  
+
+```{r}
+size <- vector("character",l)
+micro <- grep("CacheMicro",gc[,10])
+small <- grep("CacheSmall",gc[,10])
+regular <- grep("CacheRegular",gc[,10])
+large <- grep("CacheLarge",gc[,10])
+other <- grep("CacheOther",gc[,10])
+size[small] <- "small"
+size[micro] <- "micro"
+size[regular] <- "regular"
+size[large] <- "large"
+size[other] <- "other"
+
+gc$size <- size
+
+#The number of seekers: each log by a seeker is preceded by a date (in character format).  
+#Splitting the text at each date results in a list where the first entry is  
+#general data and the rest are logs made by seekers. The number of times  
+#"found  it" or "TFTC" appears in the logs is the number of seekers who found the cache  
+#(or at least reported they found it).
+seeked <- vector("numeric",l)
+found <- rep(0,l)
+for (i in 1:l){
+        infoSplit <- strsplit(gc[i,10],"20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T")
+        logs <- infoSplit[[1]][2:length(infoSplit[[1]])] #ignore first element
+        seeked[i] <- length(logs)
+        found[i] <- sum(grepl("TFTC",logs) | grepl("found it",logs,ignore.case=TRUE)) 
+}
+
+gc$seeked <- seeked
+gc$found <- found
+```
+
+##Exploratory Results
+
+1.  Most of the caches to be found in Israel are Traditional Caches.
+```{r}
+table(gc$type)
+```
+2.  The oldest/newest caches in Israel are:  
+```{r}
+gc[which.min(gc$date),1:5]
+gc[which.max(gc$date),1:5]
+```
+
+3.  The number of caches hidden each year increased from 2002 until 2013, and has since decreased.  
+```{r}
+years <- 2002:2015
+freq<- vector("numeric",14)
+for (i in seq_along(years)){
+        freq[i]<- sum(grepl(as.character(2001+i),gc$date))
+}
+plot(years,freq,main="Total number of geocaches hidden each year in israel",pch=20)
+```
+(It should be noted that 2015 is not yet over and the frequency observed is not the final count for this year.) 
+4.  The distributions of the level of difficulty to find, the level of terrain, and cache size are given in the following plots:  
+```{r}
+par(mfrow=c(3,1))
+plot(as.factor(gc$difficulty),main="Distribution of Difficulty to Find")
+plot(as.factor(gc$terrain),main="Distribution of Level of Terrain")
+for (i in 1:l){if (gc$size[i] =="")gc$size[i]<-"not available"}
+plot(as.factor(gc$size),main="Distribution of Size of Cache")
+```
+It is clear that most difficulty and terrian levels are low (not difficult) and most caches are micro or small.  
+
+5.  The distributions of recent seeks and finds are:  
+```{r}
+table(gc$seeked)
+table(gc$found)
+```
+There are apparently no caches that have never been searched for, and 89.5% of the caches have been searched for at least 5 times.  
+The number of finds for each frequency of searches (out of the last 5 searches) is shown as follows:
+```{r}
+library(ggplot2)
+qplot(found,data=gc,facets=.~seeked,main="Distribution of number of finds by search frequancy")
+```
+In summary, caches that were sought once were never found, caches that were sought twice were almost all found once.  Caches that were sought three times were mostly found twice, sometimes once and rarely not found at all.  Caches that were sought four times were usually found by two or three of the seekers, and rarely by one seeker.  Many of the caches that were sought by five or more seekers were found five or more times, and with decreasing frequencies were found four or three times or twice or once, or not at all.  In general, the number of successful searches increases with the number of searches made.  
+
+6.The twenty most active cache hiders are:
+```{r}
+sort(topCachers, decreasing =TRUE)
+```
+
+7.  A look at the [map of Geocaches in Israel](https://www.geocaching.com/map/#search?ll=30.87603,35.00152&z=7) shows that there are regions with many geocaches and other regions with none. Hierarchical clustering using Euclidean distances between caches produced the following dendogram.  
+```{r}
+d <- dist(gc[,1:2])
+par(mfrow=c(1,1))
+hc <- hclust(d)
+plot(hc,labels=FALSE)
+```
+Cutting off at 16 clusters yields the following clusters (listing 6 caches in each cluster):  
+
+```{r}
+groups <- cutree(hc,16)
+gc$groups <- groups
+table(gc$groups)
+for (i in 1:16){
+        print(i)
+        print(head(gc$desc[gc$groups==i]))
+        print("")
+}
