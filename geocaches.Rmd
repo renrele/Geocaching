@@ -11,9 +11,18 @@ I was curious to find out what is the distribution of geocaches around Israel.
 It is possible to find free online information about many geocaches, though some are reserved for 'premium' paying members. Files containing information about a number of geocaches may be downloaded only by premium members.  The files are GPX files, which is a form of XML file containing GPS data and can be read into R using the package "plotKML".  
 I ran a search for all geocaches hidden within Israel up to 25/09/2015 and downloaded the search results. I actually ran two searches, because each search is limited to a maximum of 1000 caches. The archive 16648504.zip contains GPX files with information about caches hidden up to the end of 2013, and the archive 16648512.zip, from the beginning of 2014 until 25/09/2015.  
 
-##Loading the data into R
+##Load dependencies
 ```{r}
 library(plotKML)
+library(ggplot2)
+library(ggmap)
+library(mapproj)
+library(RColorBrewer)
+
+```
+
+##Loading the data into R
+```{r}
 unzip("16648504.zip")
 unzip("16648512.zip")
 gc2013 <- readGPX("16648504.gpx")
@@ -92,7 +101,7 @@ cachers <- trimws(cachers)
 counts <- table(cachers)
 topCachers <- counts[counts>10]
 ```
-The next two variables 'url' and 'urlname' are self explanatory. The variable 'sym' has the same entry `r unique(gc$sym)` for each cache, and the variable 'type' descibes the type of cache as one of the following types:  
+The next two variables 'url' and 'urlname' are self explanatory. The variable 'sym' has the same entry "`r unique(gc$sym)`" for each cache, and the variable 'type' descibes the type of cache as one of the following types:  
 ```{r}
 unique(gc$type)
 ```
@@ -155,15 +164,18 @@ for (i in seq_along(years)){
 }
 plot(years,freq,main="Total number of geocaches hidden each year in israel",pch=20)
 ```
-(It should be noted that 2015 is not yet over and the frequency observed is not the final count for this year.) 
+
+(It should be noted that 2015 is not yet over and the frequency observed is not the final count for this year.)   
+
 4.  The distributions of the level of difficulty to find, the level of terrain, and cache size are given in the following plots:  
-```{r}
-par(mfrow=c(3,1))
-plot(as.factor(gc$difficulty),main="Distribution of Difficulty to Find")
-plot(as.factor(gc$terrain),main="Distribution of Level of Terrain")
+```{r }
+par(mfrow=c(1,3))
+plot(as.factor(gc$difficulty),main="Difficulty to Find")
+plot(as.factor(gc$terrain),main="Level of Terrain")
 for (i in 1:l){if (gc$size[i] =="")gc$size[i]<-"not available"}
-plot(as.factor(gc$size),main="Distribution of Size of Cache")
+plot(as.factor(gc$size),main="Size of Cache")
 ```
+
 It is clear that most difficulty and terrian levels are low (not difficult) and most caches are micro or small.  
 
 5.  The distributions of recent seeks and finds are:  
@@ -174,31 +186,44 @@ table(gc$found)
 There are apparently no caches that have never been searched for, and 89.5% of the caches have been searched for at least 5 times.  
 The number of finds for each frequency of searches (out of the last 5 searches) is shown as follows:
 ```{r}
-library(ggplot2)
 qplot(found,data=gc,facets=.~seeked,main="Distribution of number of finds by search frequancy")
 ```
 In summary, caches that were sought once were never found, caches that were sought twice were almost all found once.  Caches that were sought three times were mostly found twice, sometimes once and rarely not found at all.  Caches that were sought four times were usually found by two or three of the seekers, and rarely by one seeker.  Many of the caches that were sought by five or more seekers were found five or more times, and with decreasing frequencies were found four or three times or twice or once, or not at all.  In general, the number of successful searches increases with the number of searches made.  
 
-6.The twenty most active cache hiders are:
+6.  The twenty most active cache hiders are:
 ```{r}
 sort(topCachers, decreasing =TRUE)
 ```
 
-7.  A look at the [map of Geocaches in Israel](https://www.geocaching.com/map/#search?ll=30.87603,35.00152&z=7) shows that there are regions with many geocaches and other regions with none. Hierarchical clustering using Euclidean distances between caches produced the following dendogram.  
+7.  A look at the [map of Geocaches in Israel](https://www.geocaching.com/map/#search?ll=30.87603,35.00152&z=7) shows that there are regions with many geocaches and other regions with none. Hierarchical clustering using Euclidean distances between caches produced the following dendrogram.  
 ```{r}
 d <- dist(gc[,1:2])
 par(mfrow=c(1,1))
 hc <- hclust(d)
-plot(hc,labels=FALSE)
+plot(hc,labels=FALSE, xlab="", sub="")
 ```
-Cutting off at 16 clusters yields the following clusters (listing 6 caches in each cluster):  
+Cutting off at 16 clusters yields the following distribution of caches by cluster.  
 
 ```{r}
 groups <- cutree(hc,16)
-gc$groups <- groups
+gc$groups <- as.factor(groups)
 table(gc$groups)
+```
+A nice vizualization of the clusters can be obtained by superimposing the colour coded clusters on a map of Israel.  
+```{r fig.height=7.5, fig.width=5, tidy=TRUE}
+map <- get_map(location = 'Israel', zoom = 7)
+mycolors <- colorRampPalette(brewer.pal(9, "Set1"))(16)
+ggmap(map)+xlim(34.25, 35.9)+ylim(29.6, 33.2) +geom_point(aes(x = lon, y = lat,colour=groups), data = gc)+ scale_color_manual("clusters",values=mycolors)+labs(title="16 Geographical Clusters of Geocaches in Israel")
+
+```
+  
+  
+A list of a few caches in each cluster:  
+```{r}
 for (i in 1:16){
         print(i)
         print(head(gc$desc[gc$groups==i]))
         print("")
 }
+```
+
